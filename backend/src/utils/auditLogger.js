@@ -9,13 +9,31 @@ const logger = require('../config/logger');
 let lastHash = null;
 
 function computeHash({ action, entity, entityId, userId, invoiceId, metadata, prevHash }) {
-  const payload = JSON.stringify({ action, entity, entityId, userId, invoiceId, metadata, prevHash });
+  // Normalize undefined -> null/{} before stringifying. JSON.stringify OMITS keys
+  // whose value is `undefined` but KEEPS keys whose value is `null` or `{}` — so an
+  // unnormalized payload hashes differently depending on whether a field was passed
+  // as `undefined` (write time, e.g. `recordAudit({...})` with no `userId`) vs read
+  // back from the DB as `null`/`{}` (verify time, since Prisma never stores
+  // `undefined`). Without this, essentially every audit entry that omits an optional
+  // field would fail verifyChain() despite never having been tampered with.
+  const payload = JSON.stringify({
+    action,
+    entity,
+    entityId,
+    userId: userId ?? null,
+    invoiceId: invoiceId ?? null,
+    metadata: metadata ?? {},
+    prevHash: prevHash ?? null,
+  });
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
 async function getLastHash() {
   if (lastHash !== null) return lastHash;
-  const last = await prisma.auditLog.findFirst({ orderBy: { createdAt: 'desc' } });
+  // Ordered by id (cuid, k-sortable at sub-millisecond granularity), not createdAt
+  // (DATETIME(3) — millisecond resolution, which can tie under fast concurrent writes
+  // and would otherwise pick a non-deterministic "last" entry).
+  const last = await prisma.auditLog.findFirst({ orderBy: { id: 'desc' } });
   lastHash = last?.metadata?._integrity?.hash || null;
   return lastHash;
 }
@@ -44,10 +62,11 @@ async function recordAudit({ action, entity, entityId, userId, invoiceId, metada
   }
 }
 
-// Walks the full audit log in chronological order and recomputes each hash to confirm
-// no entry was altered or removed out-of-band. Returns { valid, brokenAt? }.
+// Walks the full audit log in write order (by id, not createdAt — see getLastHash)
+// and recomputes each hash to confirm no entry was altered or removed out-of-band.
+// Returns { valid, brokenAt? }.
 async function verifyChain() {
-  const entries = await prisma.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
+  const entries = await prisma.auditLog.findMany({ orderBy: { id: 'asc' } });
   let expectedPrevHash = null;
 
   for (const entry of entries) {

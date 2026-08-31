@@ -299,8 +299,15 @@ model AuditLog {
   userId    String?
   invoiceId String?
 
-  user    User?    @relation(fields: [userId], references: [id])
-  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+  // Restrict (not the default SET NULL) deliberately: AuditLog rows hash-chain over
+  // their referenced userId/invoiceId (see auditLogger.js). A cascading SET NULL on
+  // deletion of the referenced row would silently mutate that data post-write, which
+  // would make verifyChain() report tampering that never actually happened. Neither
+  // User nor Invoice has a hard-delete path in this app (both use soft-delete /
+  // status fields) — this constraint makes that a DB-enforced guarantee, not just a
+  // convention.
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 

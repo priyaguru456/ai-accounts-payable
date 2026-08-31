@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../app');
 const prisma = require('../config/prisma');
+const { cleanupTestUsers } = require('../utils/testHelpers/cleanupTestUsers');
 
 describe('payment idempotency (integration)', () => {
   const adminEmail = `payadmin-${Date.now()}@example.com`;
@@ -43,10 +44,14 @@ describe('payment idempotency (integration)', () => {
   });
 
   afterAll(async () => {
+    // AuditLog.invoiceId is onDelete: Restrict (see auditLogger.js), same reasoning as
+    // cleanupTestUsers for userId — must clear audit rows before the invoice they
+    // reference can be deleted.
+    await prisma.auditLog.deleteMany({ where: { invoiceId } });
     await prisma.payment.deleteMany({ where: { invoiceId } });
     await prisma.invoice.deleteMany({ where: { id: invoiceId } });
     await prisma.vendor.deleteMany({ where: { id: vendorId } });
-    await prisma.user.deleteMany({ where: { email: adminEmail } });
+    await cleanupTestUsers([adminEmail]);
     await prisma.$disconnect();
   });
 
@@ -110,6 +115,7 @@ describe('payment idempotency (integration)', () => {
     expect(replay.body.idempotent).toBe(true);
     expect(replay.body.payment.id).toBe(first.body.payment.id);
 
+    await prisma.auditLog.deleteMany({ where: { invoiceId: otherInvoice.id } });
     await prisma.payment.deleteMany({ where: { invoiceId: otherInvoice.id } });
     await prisma.invoice.deleteMany({ where: { id: otherInvoice.id } });
   });

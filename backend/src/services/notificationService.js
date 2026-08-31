@@ -6,6 +6,8 @@ const MESSAGES = {
   INVOICE_APPROVED: ({ invoiceNumber }) => `Invoice ${invoiceNumber} was approved.`,
   INVOICE_REJECTED: ({ invoiceNumber, comments }) => `Invoice ${invoiceNumber} was rejected.${comments ? ` Reason: ${comments}` : ''}`,
   PAYMENT_COMPLETED: ({ invoiceNumber, amount }) => `Payment of ${amount} completed for invoice ${invoiceNumber}.`,
+  AUDIT_CHAIN_BROKEN: ({ brokenAt }) =>
+    `SECURITY ALERT: audit log hash chain is broken at entry ${brokenAt}. An audit log row may have been edited or deleted outside normal application writes. Investigate immediately.`,
 };
 
 // Fires a notification for a key invoice-lifecycle event. If SLACK_WEBHOOK_URL is set,

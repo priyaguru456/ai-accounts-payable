@@ -4,13 +4,14 @@
 const request = require('supertest');
 const app = require('../app');
 const prisma = require('../config/prisma');
+const { cleanupTestUsers } = require('../utils/testHelpers/cleanupTestUsers');
 
 describe('auth routes (integration)', () => {
   const email = `test-${Date.now()}@example.com`;
   const password = 'correct-horse-battery-staple';
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email } });
+    await cleanupTestUsers([email]);
     await prisma.$disconnect();
   });
 

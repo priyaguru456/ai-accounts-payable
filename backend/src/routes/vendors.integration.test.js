@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('../app');
 const prisma = require('../config/prisma');
+const { cleanupTestUsers } = require('../utils/testHelpers/cleanupTestUsers');
 
 describe('vendor routes (integration)', () => {
   const adminEmail = `admin-${Date.now()}@example.com`;
@@ -30,7 +31,7 @@ describe('vendor routes (integration)', () => {
 
   afterAll(async () => {
     if (createdVendorId) await prisma.vendor.deleteMany({ where: { id: createdVendorId } });
-    await prisma.user.deleteMany({ where: { email: { in: [adminEmail, specialistEmail] } } });
+    await cleanupTestUsers([adminEmail, specialistEmail]);
     await prisma.$disconnect();
   });
 

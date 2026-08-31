@@ -238,6 +238,17 @@ model Payment {
   transactionId String?       @unique
   status        PaymentStatus @default(PENDING)
 
+  // Dedupes payment-initiation requests at the DB level (e.g. a client retry after a
+  // dropped response, or — once a real gateway is wired in — a webhook redelivering
+  // the same event). Caller-supplied or server-generated; always unique when present.
+  idempotencyKey String? @unique
+
+  // Forward-looking for a future real payment-gateway integration (Stripe, Razorpay,
+  // etc.) without a breaking schema change: "manual" today means an AP user recorded
+  // the payment themselves; a real integration would set this to the provider name and
+  // populate transactionId from the gateway's charge/transfer id.
+  provider String @default("manual")
+
   invoiceId String @unique
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])

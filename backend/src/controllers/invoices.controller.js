@@ -48,6 +48,11 @@ const upload = asyncHandler(async (req, res) => {
 
   const scanResult = await virusScanService.scanBuffer(req.file.buffer, req.file.originalname);
   if (!scanResult.clean) {
+    if (scanResult.error) {
+      // CLAMAV_HOST is configured but the scan itself failed (outage, timeout, etc) —
+      // fail closed rather than accept an unscanned file when a scanner was expected.
+      throw new ApiError(503, 'Virus scanning is temporarily unavailable; please try again shortly');
+    }
     throw ApiError.badRequest('Uploaded file failed the virus scan and was rejected');
   }
 

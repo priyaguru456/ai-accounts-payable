@@ -21,6 +21,22 @@ services:
     ports:
       - '6379:6379'
 
+  # Optional: uploaded invoice documents are scanned via this ClamAV daemon when
+  # backend's CLAMAV_HOST=clamav is set (see backend/src/services/virusScanService.js).
+  # Skipped by default (no CLAMAV_HOST in backend/.env.example) since the virus
+  # definitions download makes first boot slow — opt in once you actually need it.
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    ports:
+      - '3310:3310'
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s # virus definition download on first boot
+
   ai-service:
     build:
       context: ../ai-service

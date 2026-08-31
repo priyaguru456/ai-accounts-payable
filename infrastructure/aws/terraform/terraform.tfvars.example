@@ -1,0 +1,6 @@
+aws_region        = "us-east-1"
+environment       = "staging"
+db_password       = "CHANGE_ME"
+backend_image     = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ap-backend:latest"
+worker_image      = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ap-worker:latest"
+ai_service_image  = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ap-ai-service:latest"

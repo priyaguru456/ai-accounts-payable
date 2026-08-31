@@ -1,0 +1,29 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Env files
+.env
+.env.local
+!.env.example
+
+# Build output
+dist/
+dist-ssr/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.local
+
+# Backend upload storage (dev-only local disk storage)
+backend/uploads/
+
+# Prisma generated client
+backend/src/generated/prisma/

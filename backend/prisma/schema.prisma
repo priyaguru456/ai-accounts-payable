@@ -1,0 +1,300 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  AP_SPECIALIST
+  FINANCE_MANAGER
+  APPROVER
+  AUDITOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PROCESSING
+  PENDING_REVIEW
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+}
+
+enum MatchStatus {
+  NOT_CHECKED
+  MATCHED
+  MISMATCHED
+  PARTIAL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         UserRole   @default(AP_SPECIALIST)
+  status       UserStatus @default(ACTIVE)
+  refreshTokenHash String?
+  refreshTokenExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoicesUploaded Invoice[] @relation("UploadedBy")
+  approvals        Approval[]
+  auditLogs        AuditLog[]
+}
+
+model Vendor {
+  id            String  @id @default(cuid())
+  name          String
+  email         String?
+  phone         String?
+  gstin         String?
+  address       String?
+  bankAccount   String?
+  ifsc          String?
+  isActive      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices       Invoice[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNumber  String
+  invoiceDate    DateTime
+  dueDate        DateTime?
+  currency       String        @default("INR")
+  subtotal       Decimal       @db.Decimal(15, 2)
+  taxAmount      Decimal       @db.Decimal(15, 2)
+  totalAmount    Decimal       @db.Decimal(15, 2)
+  status         InvoiceStatus @default(PROCESSING)
+  matchStatus    MatchStatus   @default(NOT_CHECKED)
+
+  documentUrl    String?
+  purchaseOrderId String?
+  vendorId       String
+  uploadedById   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor        Vendor        @relation(fields: [vendorId], references: [id])
+  uploadedBy    User          @relation("UploadedBy", fields: [uploadedById], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  items          InvoiceItem[]
+  aiExtraction   AIExtraction?
+  riskAssessment AIRiskAssessment?
+  approvals      Approval[]
+  payment        Payment?
+  auditLogs      AuditLog[]
+
+  @@unique([vendorId, invoiceNumber])
+  @@index([status])
+  @@index([dueDate])
+  @@index([vendorId])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Decimal @db.Decimal(15, 3)
+  unitPrice   Decimal @db.Decimal(15, 2)
+  amount      Decimal @db.Decimal(15, 2)
+
+  invoiceId String
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  poNumber    String   @unique
+  orderDate   DateTime
+  totalAmount Decimal  @db.Decimal(15, 2)
+
+  vendorId String
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  items        PurchaseOrderItem[]
+  invoices     Invoice[]
+  goodsReceipts GoodsReceipt[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId])
+}
+
+model PurchaseOrderItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Decimal @db.Decimal(15, 3)
+  unitPrice   Decimal @db.Decimal(15, 2)
+  amount      Decimal @db.Decimal(15, 2)
+
+  purchaseOrderId String
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+}
+
+model GoodsReceipt {
+  id          String   @id @default(cuid())
+  receiptNumber String  @unique
+  receivedDate DateTime
+
+  purchaseOrderId String
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  items         GoodsReceiptItem[]
+
+  createdAt DateTime @default(now())
+
+  @@index([purchaseOrderId])
+}
+
+model GoodsReceiptItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Decimal @db.Decimal(15, 3)
+
+  goodsReceiptId String
+
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+
+  @@index([goodsReceiptId])
+}
+
+model Approval {
+  id         String         @id @default(cuid())
+  status     ApprovalStatus @default(PENDING)
+  comments   String?
+  approvedAt DateTime?
+
+  invoiceId String
+  approverId String
+
+  invoice  Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  approver User    @relation(fields: [approverId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([approverId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  amount        Decimal       @db.Decimal(15, 2)
+  paymentDate   DateTime?
+  transactionId String?       @unique
+  status        PaymentStatus @default(PENDING)
+
+  invoiceId String @unique
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIExtraction {
+  id             String  @id @default(cuid())
+  extractedData  Json
+  confidence     Decimal? @db.Decimal(5, 2)
+  modelName      String?
+  processingTime Int?
+  errorMessage   String?
+  ocrRawText     String? @db.Text
+
+  invoiceId String @unique
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIRiskAssessment {
+  id          String    @id @default(cuid())
+  riskScore   Decimal   @db.Decimal(5, 2)
+  riskLevel   RiskLevel
+  reasons     Json
+  modelName   String?
+
+  invoiceId String @unique
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  metadata  Json?
+
+  userId    String?
+  invoiceId String?
+
+  user    User?    @relation(fields: [userId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([invoiceId])
+  @@index([createdAt])
+}

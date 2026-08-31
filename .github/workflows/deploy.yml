@@ -1,0 +1,76 @@
+# Build/push/deploy pipeline: builds all 4 service images, pushes to ECR, deploys to
+# staging ECS on every merge to main; promoting the same images to prod requires a
+# manual approval via the `production` GitHub Environment.
+#
+# NOT FUNCTIONAL YET: this workflow references AWS resources (ECR repos, ECS cluster/
+# services, an OIDC role) and GitHub secrets/environments that do not exist because no
+# AWS account is set up for this project (see infrastructure/aws/README.md). It is
+# written so the shape of the pipeline is reviewable now; wire the `env:` values and
+# create the `production` environment with required reviewers once real infrastructure
+# exists (Phase 7 of the Ultra roadmap) before this can actually run.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+  ECS_CLUSTER: ap-automation-cluster
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for OIDC -> AWS role assumption
+      contents: read
+    strategy:
+      matrix:
+        service: [backend, worker, ai-service, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-actions-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build and push ${{ matrix.service }}
+        run: |
+          docker build \
+            -f ${{ matrix.service }}/Dockerfile \
+            $( [ "${{ matrix.service }}" = "worker" ] && echo "." || echo "${{ matrix.service }}" ) \
+            -t ${{ env.ECR_REGISTRY }}/ap-${{ matrix.service }}:${{ github.sha }}
+          docker push ${{ env.ECR_REGISTRY }}/ap-${{ matrix.service }}:${{ github.sha }}
+
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy to staging ECS
+        run: |
+          echo "Update each ECS service's task definition to the new image tag and"
+          echo "run: aws ecs update-service --cluster $ECS_CLUSTER --service ap-<service>-staging --force-new-deployment"
+
+  promote-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production # requires manual approval — configure required reviewers on this Environment
+    steps:
+      - name: Promote the same images to production ECS
+        run: |
+          echo "Same image tags as staging; run:"
+          echo "aws ecs update-service --cluster $ECS_CLUSTER --service ap-<service>-prod --force-new-deployment"
+
+      - name: Rollback procedure (manual)
+        run: |
+          echo "To roll back: re-run 'aws ecs update-service --force-new-deployment' with the"
+          echo "previous task definition revision (aws ecs describe-services shows current"
+          echo "and previous taskDefinition ARNs). Document the last-known-good ARN before promoting."

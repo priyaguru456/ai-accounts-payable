@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `User` ADD COLUMN `mfaEnabled` BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN `otpHash` VARCHAR(191) NULL,
+    ADD COLUMN `otpExpiresAt` DATETIME(3) NULL;

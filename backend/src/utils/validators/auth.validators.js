@@ -12,4 +12,9 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-module.exports = { registerSchema, loginSchema };
+const verifyOtpSchema = z.object({
+  userId: z.string().min(1),
+  otp: z.string().length(6),
+});
+
+module.exports = { registerSchema, loginSchema, verifyOtpSchema };

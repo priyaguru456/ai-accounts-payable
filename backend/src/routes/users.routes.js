@@ -2,12 +2,13 @@ const express = require('express');
 const controller = require('../controllers/users.controller');
 const auth = require('../middleware/auth');
 const rbac = require('../middleware/rbac');
+const { adminLimiter } = require('../middleware/rateLimit');
 const validate = require('../utils/validators/validate');
 const { z } = require('zod');
 
 const router = express.Router();
 
-router.use(auth, rbac('ADMIN'));
+router.use(auth, rbac('ADMIN'), adminLimiter);
 
 router.get('/', controller.list);
 router.patch(

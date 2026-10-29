@@ -75,6 +75,13 @@ model User {
   refreshTokenHash String?
   refreshTokenExpiresAt DateTime?
 
+  // Email-OTP MFA. Only the SHA-256 hash of the current code is stored (mirrors
+  // refreshTokenHash) so a DB leak alone never hands out a usable code, and it's
+  // cleared immediately after a successful verify so it can't be replayed.
+  mfaEnabled    Boolean   @default(false)
+  otpHash       String?
+  otpExpiresAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

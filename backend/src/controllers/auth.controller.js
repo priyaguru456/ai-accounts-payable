@@ -6,6 +6,8 @@ const env = require('../config/env');
 const ApiError = require('../utils/apiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { recordAudit } = require('../utils/auditLogger');
+const notificationService = require('../services/notificationService');
+const { generateOtp, hashOtp, OTP_TTL_MS } = require('../utils/otp');
 
 const SALT_ROUNDS = 12;
 const REFRESH_COOKIE_NAME = 'ap_refresh_token';
@@ -78,6 +80,19 @@ const login = asyncHandler(async (req, res) => {
 
   if (user.status !== 'ACTIVE') throw ApiError.forbidden('Account is inactive');
 
+  if (user.mfaEnabled) {
+    const otp = generateOtp();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { otpHash: hashOtp(otp), otpExpiresAt: new Date(Date.now() + OTP_TTL_MS) },
+    });
+    notificationService.notify('OTP_LOGIN_CODE', { otp, email: user.email });
+    await recordAudit({ action: 'USER_LOGIN_OTP_SENT', entity: 'User', entityId: user.id, userId: user.id });
+
+    res.json({ mfaRequired: true, userId: user.id });
+    return;
+  }
+
   const token = signAccessToken(user);
   const { token: refreshToken, refreshTokenExpiresAt } = await issueRefreshToken(user.id);
   setRefreshCookie(res, refreshToken, refreshTokenExpiresAt);
@@ -89,6 +104,55 @@ const login = asyncHandler(async (req, res) => {
     token,
   });
 });
+
+const verifyOtp = asyncHandler(async (req, res) => {
+  const { userId, otp } = req.body;
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.mfaEnabled || !user.otpHash || !user.otpExpiresAt) {
+    throw ApiError.unauthorized('No verification code pending for this user');
+  }
+  if (user.otpExpiresAt < new Date()) {
+    throw ApiError.unauthorized('Verification code has expired');
+  }
+  // Constant-time compare so response timing can't leak how many hash bytes matched.
+  const presentedHash = Buffer.from(hashOtp(otp));
+  const storedHash = Buffer.from(user.otpHash);
+  if (presentedHash.length !== storedHash.length || !crypto.timingSafeEqual(presentedHash, storedHash)) {
+    throw ApiError.unauthorized('Invalid verification code');
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { otpHash: null, otpExpiresAt: null } });
+
+  const token = signAccessToken(user);
+  const { token: refreshToken, refreshTokenExpiresAt } = await issueRefreshToken(user.id);
+  setRefreshCookie(res, refreshToken, refreshTokenExpiresAt);
+
+  await recordAudit({ action: 'USER_LOGIN', entity: 'User', entityId: user.id, userId: user.id });
+
+  res.json({
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    token,
+  });
+});
+
+const setMfaEnabled = (enabled) =>
+  asyncHandler(async (req, res) => {
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { mfaEnabled: enabled, otpHash: null, otpExpiresAt: null },
+    });
+    await recordAudit({
+      action: enabled ? 'USER_MFA_ENABLED' : 'USER_MFA_DISABLED',
+      entity: 'User',
+      entityId: req.user.id,
+      userId: req.user.id,
+    });
+    res.json({ mfaEnabled: enabled });
+  });
+
+const enableMfa = setMfaEnabled(true);
+const disableMfa = setMfaEnabled(false);
 
 const refresh = asyncHandler(async (req, res) => {
   const presented = req.cookies?.[REFRESH_COOKIE_NAME];
@@ -127,4 +191,4 @@ const me = asyncHandler(async (req, res) => {
   res.json({ user: req.user });
 });
 
-module.exports = { register, login, refresh, logout, me };
+module.exports = { register, login, verifyOtp, refresh, logout, me, enableMfa, disableMfa };

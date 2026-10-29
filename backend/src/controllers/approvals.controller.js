@@ -24,6 +24,12 @@ const act = asyncHandler(async (req, res) => {
   if (invoice.status !== 'PENDING_APPROVAL' && invoice.status !== 'PENDING_REVIEW') {
     throw ApiError.badRequest(`Invoice is not awaiting approval (current status: ${invoice.status})`);
   }
+  // Segregation of duties: the person who uploaded/created the invoice must not be
+  // able to also approve it — that would let one user push a fraudulent invoice
+  // through without any independent review.
+  if (invoice.uploadedById === req.user.id) {
+    throw ApiError.forbidden('You cannot approve or reject an invoice you uploaded');
+  }
 
   const approval = await prisma.approval.create({
     data: {

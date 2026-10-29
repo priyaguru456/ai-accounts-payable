@@ -3,6 +3,7 @@ const ApiError = require('../utils/apiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { recordAudit } = require('../utils/auditLogger');
 const { encryptField, decryptField } = require('../utils/fieldEncryption');
+const notificationService = require('../services/notificationService');
 
 function encryptSensitiveFields(data) {
   const out = { ...data };
@@ -45,8 +46,29 @@ const update = asyncHandler(async (req, res) => {
   const existing = await prisma.vendor.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound('Vendor not found');
 
+  // Bank-detail changes are a classic vendor-fraud vector (a compromised email or
+  // insider redirecting future payments to a different account), so they get their
+  // own high-visibility audit action instead of blending into a generic "updated"
+  // entry — anyone reviewing the audit log or alerting on it can filter for this.
+  const existingBankAccount = decryptField(existing.bankAccount);
+  const existingIfsc = decryptField(existing.ifsc);
+  const bankAccountChanged = 'bankAccount' in req.body && req.body.bankAccount !== existingBankAccount;
+  const ifscChanged = 'ifsc' in req.body && req.body.ifsc !== existingIfsc;
+
   const vendor = await prisma.vendor.update({ where: { id: req.params.id }, data: encryptSensitiveFields(req.body) });
   await recordAudit({ action: 'VENDOR_UPDATED', entity: 'Vendor', entityId: vendor.id, userId: req.user.id, metadata: { fields: Object.keys(req.body) } });
+
+  if (bankAccountChanged || ifscChanged) {
+    await recordAudit({
+      action: 'VENDOR_BANK_DETAILS_CHANGED',
+      entity: 'Vendor',
+      entityId: vendor.id,
+      userId: req.user.id,
+      metadata: { bankAccountChanged, ifscChanged, vendorName: vendor.name },
+    });
+    notificationService.notify('VENDOR_BANK_DETAILS_CHANGED', { vendorId: vendor.id, vendorName: vendor.name });
+  }
+
   res.json({ vendor: decryptVendor(vendor) });
 });
 
